@@ -45,11 +45,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 MODEL_ID   = "Qwen/Qwen3-30B-A3B"
-DATA_DIR   = "finetune/data"
+DATA_DIR   = "finetune/data"          # default; overridden by --output-dir
 TOP_K      = 256
 SEED       = 42
-MAX_NEW_TOKENS = 512
-MAX_INPUT_LEN  = 1024          # max prompt tokens; skip if longer
+MAX_NEW_TOKENS = 1536   # Qwen3 thinking blocks can be 800-1200 tokens; 512 was too short
+MAX_INPUT_LEN  = 1536   # max prompt tokens; skip if longer
 
 NORMAD_TRAIN_COUNTRIES = {"india", "pakistan", "bangladesh"}
 NORMAD_TEST_COUNTRIES  = {"nepal", "sri_lanka"}
@@ -226,15 +226,27 @@ def parse_options(s):
 
 def extract_label_normad(text):
     text = text.strip().lower()
-    if "</think>" in text:
-        text = text.split("</think>")[-1].strip()
+
+    # Qwen3 wraps thinking in <think>...</think>; look after the closing tag first.
+    # If the block was truncated (max_new_tokens hit mid-think), search the full text.
+    search_text = text.split("</think>")[-1].strip() if "</think>" in text else text
+
+    # Priority 1: response starts with exactly the label
     for lbl in ("yes", "no", "neutral"):
-        if text.startswith(lbl):
+        if search_text.startswith(lbl):
             return lbl
-    tail = text[-300:]
+
+    # Priority 2: label appears as its own word in the last 400 chars
+    tail = search_text[-400:] if len(search_text) > 400 else search_text
     for lbl in ("yes", "no", "neutral"):
         if re.search(rf"\b{lbl}\b", tail):
             return lbl
+
+    # Priority 3: full original text (catches truncated thinking with no </think>)
+    for lbl in ("yes", "no", "neutral"):
+        if re.search(rf"\b{lbl}\b", text[-600:]):
+            return lbl
+
     return None
 
 
@@ -502,12 +514,17 @@ def main():
     parser.add_argument("--model",          default=MODEL_ID)
     parser.add_argument("--sources",        nargs="+", default=SOURCES,
                         help="Subset of sources to process")
-    parser.add_argument("--filter-correct", action="store_true", default=True,
-                        help="NormAd: keep only examples where teacher prediction == gold")
+    parser.add_argument("--output-dir",     default=DATA_DIR,
+                        help="Directory to write *_soft.jsonl and *_test.jsonl files. "
+                             "Use a path on scratch to avoid home-dir quota issues.")
+    parser.add_argument("--filter-correct", action="store_true", default=False,
+                        help="NormAd: keep only examples where teacher prediction == gold "
+                             "(default False — Qwen3-30B is accurate; filtering discards too much)")
     parser.add_argument("--no-filter-correct", dest="filter_correct", action="store_false")
     args = parser.parse_args()
 
-    os.makedirs(DATA_DIR, exist_ok=True)
+    out_dir = args.output_dir
+    os.makedirs(out_dir, exist_ok=True)
     tok, model = load_teacher(args.model or MODEL_ID)
 
     for src in args.sources:
@@ -526,9 +543,9 @@ def main():
             print(f"Unknown source: {src}")
             continue
 
-        save_jsonl(os.path.join(DATA_DIR, f"{src}_soft.jsonl"),  train)
+        save_jsonl(os.path.join(out_dir, f"{src}_soft.jsonl"),  train)
         if test:
-            save_jsonl(os.path.join(DATA_DIR, f"{src}_test.jsonl"), test)
+            save_jsonl(os.path.join(out_dir, f"{src}_test.jsonl"), test)
 
     print("\nDone.")
 
