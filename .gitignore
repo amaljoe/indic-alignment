@@ -1,0 +1,5 @@
+finetune/checkpoints/
+.claude/
+__pycache__/
+*.pyc
+*.pyo
