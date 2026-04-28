@@ -14,7 +14,7 @@ LOG="$HOME/vllm_${SERVED_NAME}.log"
 echo "Starting vLLM: $MODEL on port $PORT (tp=$TP)"
 echo "Log: $LOG"
 
-apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c "
+apptainer exec --nv --bind /scratch:/scratch ~/apptainer-images/cuda-custom-amal_latest.sif bash -c "
   source ~/.bashrc 2>/dev/null
   micromamba activate /dev/shm/qwen35
   export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6

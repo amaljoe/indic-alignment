@@ -49,7 +49,7 @@ DATA_DIR   = "finetune/data"          # default; overridden by --output-dir
 TOP_K      = 256
 SEED       = 42
 MAX_NEW_TOKENS = 1536   # Qwen3 thinking blocks can be 800-1200 tokens; 512 was too short
-MAX_INPUT_LEN  = 1536   # max prompt tokens; skip if longer
+MAX_INPUT_LEN  = 3000   # raised from 1536: NormAd backgrounds can be 1500+ tokens
 
 NORMAD_TRAIN_COUNTRIES = {"india", "pakistan", "bangladesh"}
 NORMAD_TEST_COUNTRIES  = {"nepal", "sri_lanka"}
@@ -307,44 +307,58 @@ def process_normad(tok, model, args):
     return train_recs, test_recs
 
 
-MILU_MAX_EXAMPLES = 800   # cap per language to keep runtime manageable
+MILU_MAX_EXAMPLES = 800   # default; overridden by --max-examples at runtime
+# ai4bharat/MILU schema: option1/option2/option3/option4 fields; target = "option1" etc.
+MILU_OPTION_KEYS  = ["option1", "option2", "option3", "option4"]
 
 
-def process_milu(tok, model, lang="en"):
+def process_milu(tok, model, lang="en", max_examples=MILU_MAX_EXAMPLES):
     source = f"milu_{lang}"
-    config = "hi" if lang == "hi" else "en"
-    try:
-        ds = load_dataset("sarvamai/MILU", config, split="train")
-    except Exception:
-        ds = load_dataset("sarvamai/MILU", split="train")
+    # Dataset uses full language names; map short code → HF language config name
+    lang_map = {"en": "English", "hi": "Hindi"}
+    hf_lang = lang_map.get(lang, lang)
+
+    # ai4bharat/MILU has validation + test splits (no train); use both for soft labels
+    rows = []
+    for split in ("validation", "test"):
+        try:
+            ds = load_dataset("ai4bharat/MILU", hf_lang, split=split)
+            rows.extend(list(ds))
+        except Exception as e:
+            print(f"  Could not load MILU {hf_lang}/{split}: {e}")
+
+    if not rows:
+        print(f"  No MILU data found for language '{hf_lang}'")
+        return [], []
 
     # Sample a fixed subset so this doesn't run for hours
-    rows = list(ds)
-    if len(rows) > MILU_MAX_EXAMPLES:
+    if len(rows) > max_examples:
         random.shuffle(rows)
-        rows = rows[:MILU_MAX_EXAMPLES]
+        rows = rows[:max_examples]
+    print(f"  MILU-{lang}: {len(rows)} examples to process")
 
     train_recs = []
     for row in tqdm(rows, desc=f"MILU-{lang}"):
         question = row.get("question", "")
-        options  = row.get("options", [])
-        if isinstance(options, str):
-            try:
-                options = ast.literal_eval(options)
-            except Exception:
-                options = [options]
-        answer_idx = row.get("answer", None)
 
-        if not options or answer_idx is None:
+        # Build options list from option1..option4 fields
+        options = [row[k] for k in MILU_OPTION_KEYS if row.get(k)]
+        if not options:
             continue
 
-        opts_str = "\n".join(f"{LETTERS[i]}. {o}" for i, o in enumerate(options) if i < 26)
-        try:
-            gold = LETTERS[int(answer_idx)]
-        except (ValueError, IndexError):
-            gold = str(answer_idx).strip().upper()
-            if gold not in LETTERS:
+        # target field is the key of the correct option (e.g. "option1")
+        target = row.get("target", "")
+        if target in MILU_OPTION_KEYS:
+            gold = LETTERS[MILU_OPTION_KEYS.index(target)]
+        else:
+            # Fallback: try treating target as a letter or index
+            t = str(target).strip().upper()
+            if t in LETTERS:
+                gold = t
+            else:
                 continue
+
+        opts_str = "\n".join(f"{LETTERS[i]}. {o}" for i, o in enumerate(options))
 
         user_q = f"{question}\n\n{opts_str}"
         teacher_msgs = [
@@ -366,7 +380,7 @@ def process_milu(tok, model, lang="en"):
     return train_recs, []   # MILU has no separate test split here; eval on val
 
 
-def process_bhed(tok, model):
+def process_bhed(tok, model, max_examples=None):
     import io
     import urllib.request
 
@@ -386,6 +400,8 @@ def process_bhed(tok, model):
             all_rows.append(row)
 
     random.shuffle(all_rows)
+    if max_examples and len(all_rows) > max_examples:
+        all_rows = all_rows[:max_examples]
     n_test  = max(1, int(len(all_rows) * 0.20))
     test_rows  = all_rows[:n_test]
     train_rows = all_rows[n_test:]
@@ -446,12 +462,14 @@ def process_bhed(tok, model):
     return train_recs, test_recs
 
 
-def process_globalopinion(tok, model):
+def process_globalopinion(tok, model, max_examples=None):
     ds = load_dataset("Anthropic/llm_global_opinions", split="train")
 
     all_rows = [r for r in ds
                 if INDIA_KEY in parse_selections(r.get("selections", {}))]
     random.shuffle(all_rows)
+    if max_examples and len(all_rows) > max_examples:
+        all_rows = all_rows[:max_examples]
     n_test  = max(1, int(len(all_rows) * 0.20))
     test_rows  = all_rows[:n_test]
     train_rows = all_rows[n_test:]
@@ -521,6 +539,8 @@ def main():
                         help="NormAd: keep only examples where teacher prediction == gold "
                              "(default False — Qwen3-30B is accurate; filtering discards too much)")
     parser.add_argument("--no-filter-correct", dest="filter_correct", action="store_false")
+    parser.add_argument("--max-examples",   type=int, default=None,
+                        help="Cap each source at this many examples (for quick runs)")
     args = parser.parse_args()
 
     out_dir = args.output_dir
@@ -532,13 +552,13 @@ def main():
         if src == "normad":
             train, test = process_normad(tok, model, args)
         elif src == "milu_en":
-            train, test = process_milu(tok, model, "en")
+            train, test = process_milu(tok, model, "en",  max_examples=args.max_examples)
         elif src == "milu_hi":
-            train, test = process_milu(tok, model, "hi")
+            train, test = process_milu(tok, model, "hi",  max_examples=args.max_examples)
         elif src == "bhed":
-            train, test = process_bhed(tok, model)
+            train, test = process_bhed(tok, model,         max_examples=args.max_examples)
         elif src == "globalopinion":
-            train, test = process_globalopinion(tok, model)
+            train, test = process_globalopinion(tok, model, max_examples=args.max_examples)
         else:
             print(f"Unknown source: {src}")
             continue
