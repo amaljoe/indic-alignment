@@ -137,9 +137,13 @@ def load_teacher(model_id=MODEL_ID):
 @torch.no_grad()
 def generate_and_extract(tok, model, teacher_msgs, student_msgs, max_new=MAX_NEW_TOKENS):
     """
-    1. Generate teacher response for teacher_msgs.
-    2. Forward pass over (teacher_msgs + response) to get per-token distributions.
-    3. Return (response_text, top_k_logprobs_list).
+    Generate teacher response and capture per-token top-K log-prob distributions.
+
+    Uses output_scores=True so scores are captured during generation itself —
+    no separate forward pass needed (~2× faster than the naive approach).
+
+    With do_sample=False (greedy), no logit warpers (temperature/top_p/top_k) are
+    applied, so scores are the raw model logits suitable for distillation.
 
     top_k_logprobs_list[i] = list of {"token_id": int, "log_prob": float}  (len=TOP_K)
     """
@@ -154,39 +158,34 @@ def generate_and_extract(tok, model, teacher_msgs, student_msgs, max_new=MAX_NEW
     device = next(model.parameters()).device
     prompt_ids = prompt_ids.to(device)
 
-    # Generate (greedy for determinism)
+    # Generate with scores captured inline (greedy = raw logits, no warpers)
     gen_out = model.generate(
         prompt_ids,
         max_new_tokens=max_new,
         do_sample=False,
         pad_token_id=tok.pad_token_id,
         eos_token_id=tok.eos_token_id,
+        return_dict_in_generate=True,
+        output_scores=True,
     )
-    new_ids = gen_out[0, prompt_ids.shape[1]:]   # response token ids
+    new_ids = gen_out.sequences[0, prompt_ids.shape[1]:]
     if new_ids.numel() == 0:
         return None, None
 
     response_text = tok.decode(new_ids, skip_special_tokens=True)
 
-    # Full forward pass over prompt+response to get exact next-token distributions
-    full_ids = gen_out  # [1, L_full]
-    logits = model(input_ids=full_ids).logits[0]  # [L_full, V]
-
-    # Response positions: predict new_ids[i] from position (prompt_len - 1 + i)
-    resp_start = prompt_ids.shape[1] - 1
-    resp_logits = logits[resp_start : resp_start + new_ids.shape[0]]  # [R, V]
-
-    log_probs = F.log_softmax(resp_logits.float(), dim=-1)  # [R, V]
-    topk_lp, topk_id = torch.topk(log_probs, k=TOP_K, dim=-1)  # [R, K]
-
-    topk_lp  = topk_lp.cpu().float().numpy()
-    topk_id  = topk_id.cpu().numpy()
-
-    teacher_logprobs = [
-        [{"token_id": int(topk_id[i, j]), "log_prob": float(topk_lp[i, j])}
-         for j in range(TOP_K)]
-        for i in range(new_ids.shape[0])
-    ]
+    # gen_out.scores: tuple of [batch, V] tensors, one per generated token
+    # With do_sample=False these are raw logits (no temperature/top_p applied)
+    teacher_logprobs = []
+    for scores_t in gen_out.scores:
+        log_probs = F.log_softmax(scores_t[0].float(), dim=-1)  # [V]
+        topk_lp, topk_id = torch.topk(log_probs, k=TOP_K)
+        topk_lp = topk_lp.cpu().float().numpy()
+        topk_id = topk_id.cpu().numpy()
+        teacher_logprobs.append([
+            {"token_id": int(topk_id[j]), "log_prob": float(topk_lp[j])}
+            for j in range(TOP_K)
+        ])
 
     return response_text, teacher_logprobs
 
@@ -242,7 +241,7 @@ def extract_label_normad(text):
 # ── Per-dataset generators ─────────────────────────────────────────────────────
 
 def process_normad(tok, model, args):
-    ds = load_dataset("akhilayerukola/NormAd", split="test")
+    ds = load_dataset("akhilayerukola/NormAd", split="train")
     train_recs, test_recs = [], []
 
     for row in tqdm(ds, desc="NormAd"):
@@ -296,6 +295,9 @@ def process_normad(tok, model, args):
     return train_recs, test_recs
 
 
+MILU_MAX_EXAMPLES = 800   # cap per language to keep runtime manageable
+
+
 def process_milu(tok, model, lang="en"):
     source = f"milu_{lang}"
     config = "hi" if lang == "hi" else "en"
@@ -304,8 +306,14 @@ def process_milu(tok, model, lang="en"):
     except Exception:
         ds = load_dataset("sarvamai/MILU", split="train")
 
+    # Sample a fixed subset so this doesn't run for hours
+    rows = list(ds)
+    if len(rows) > MILU_MAX_EXAMPLES:
+        random.shuffle(rows)
+        rows = rows[:MILU_MAX_EXAMPLES]
+
     train_recs = []
-    for row in tqdm(ds, desc=f"MILU-{lang}"):
+    for row in tqdm(rows, desc=f"MILU-{lang}"):
         question = row.get("question", "")
         options  = row.get("options", [])
         if isinstance(options, str):
