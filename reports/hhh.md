@@ -83,6 +83,48 @@ Dataset translated with `google/gemma-3-27b-it` via vLLM (`data/hhh_alignment/{h
 5. **Implication for DPO training:** multilingual preference data (especially Malayalam) should be included in any fine-tuning targeting Indic HHH alignment. English-only DPO will not close the Malayalam gap via cross-lingual transfer alone.
 
 ---
+## Thinking Trace Analysis (Hindi & Malayalam)
+
+We sampled thinking traces from the 8B model on all Hindi (n=218) and Malayalam (n=220) eval examples to understand how the model reasons over Indic-script inputs.
+
+### Reasoning language
+
+| Language | Thinks in English | Thinks mixed | Thinks in target |
+|----------|------------------:|-------------:|-----------------:|
+| Hindi    | 213/218 (98%)     | 5/218 (2%)   | 0/218 (0%)       |
+| Malayalam | 205/220 (93%)    | 12/220 (5%)  | 3/220 (1%)       |
+
+The model almost always reasons **in English** even when the prompt is in Devanagari or Malayalam script. The typical pattern is: the model opens with "The user request is in [Hindi/Malayalam] script, which translates to: …" and then proceeds to reason entirely in English. This is a sign that the model has no native preference-reasoning capability in Indic scripts — it cross-lingual-transfers by translating in-context rather than reasoning directly.
+
+### Thinking length and correctness
+
+| Language | Avg tokens (correct) | Avg tokens (incorrect) |
+|----------|---------------------:|----------------------:|
+| Hindi    | ~3,200 chars         | ~4,200 chars           |
+| Malayalam | ~3,800 chars        | ~5,700 chars           |
+
+Incorrect answers have **~50% longer** thinking traces. The dominant failure mode is **circular reasoning**: the model re-reads the two candidate replies multiple times, flips its tentative conclusion, and eventually commits to the wrong letter. One extreme Malayalam example (`helpful`, country capitals list) produced 25,755 chars of thinking while repeatedly comparing character-level script variants without converging.
+
+### Failure modes by subset
+
+**`helpful` (worst Δ: −19 pt in Malayalam)**
+The model correctly identifies the scenario (e.g., rent apology, story continuation) but misidentifies the better reply. The error is a judgment call — both replies are plausible and the model's English translation of the Malayalam text loses the subtle register/tone difference that marks one reply as more contextually appropriate.
+
+**`honest`**
+Errors are rare but occur when the model correctly translates the factual question and both replies, then picks the wrong reply on calibration grounds (e.g., prefers an answer that hedges with "I'm not sure" over one that states the correct fact confidently — or vice versa).
+
+**`harmless`**
+Nearly perfect in all languages (~90–97%). Harm signals are coarse-grained enough that English-language reasoning over a translated input is sufficient.
+
+### Empty / failed responses
+
+Malayalam produced **3 completely empty responses** (raw output = `""`, pred = None, all marked incorrect). These are likely max-tokens truncations or vLLM timeouts on very long prompt pairs. Hindi had none.
+
+### Implication
+
+The model's chain-of-thought is structurally sound — it frames the task correctly and applies HHH criteria — but it is a **cognitive translation pipeline**: Indic script → implicit English → English reasoning → answer. Quality degrades when (a) the translation step loses nuance (`helpful` subset, conversational register), (b) long script texts cause circular comparison loops (`helpful`, complex lists), or (c) the context window runs out (3 Malayalam timeouts). Direct preference-reasoning in Indic scripts (via multilingual DPO) should improve the `helpful` and `honest` gaps.
+
+---
 ## How to reproduce
 
 ```bash
