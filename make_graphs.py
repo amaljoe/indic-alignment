@@ -9,8 +9,8 @@ import numpy as np
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 os.makedirs(OUT, exist_ok=True)
 
-BLUE  = "#4C72B0"
-GREEN = "#55A868"
+BLUE  = "#1F77F4"
+GREEN = "#2CA02C"
 BAR_W = 0.35
 
 def save(fig, name):
@@ -60,7 +60,6 @@ ax.bar(x2, p2_before, color=BLUE, label="Before")
 ax.set_xticks(x2); ax.set_xticklabels(metrics, fontsize=10)
 ax.set_ylabel("Score"); ax.set_ylim(0, 100)
 ax.set_title("Phase 2 — Cultural Alignment: Baseline")
-ax.axhline(50, color="red", linestyle="--", alpha=0.5, label="BhED random=50%")
 ax.legend(); ax.grid(axis="y", alpha=0.3)
 save(fig, "phase2_before.png")
 
@@ -70,7 +69,6 @@ ax.bar(x2 + BAR_W/2, p2_after,  BAR_W, color=GREEN, label="After")
 ax.set_xticks(x2); ax.set_xticklabels(metrics, fontsize=10)
 ax.set_ylabel("Score"); ax.set_ylim(0, 100)
 ax.set_title("Phase 2 — Cultural Alignment: Before vs After")
-ax.axhline(50, color="red", linestyle="--", alpha=0.5, label="BhED random=50%")
 ax.legend(); ax.grid(axis="y", alpha=0.3)
 save(fig, "phase2_before_after.png")
 
