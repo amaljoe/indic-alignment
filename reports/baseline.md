@@ -94,6 +94,82 @@ _50 % = no bias.  >50 % = stereotypical preference.  <50 % = anti-stereotypical 
 
 ---
 
+## DPO LoRA Fine-tuning Results
+
+**Setup**: 1-epoch DPO LoRA (r=16, α=32, target q/k/v/o projections) trained on 14,901 multilingual preference pairs (5k English + 4,964 Hindi + 4,947 Malayalam from Anthropic/hh-rlhf, translated with Gemma-3-27B). Base: `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`. Trained with 4-GPU DDP in ~61 min, reward margin rose from −0.007 → ~0.13 over 466 steps.
+
+### MILU
+
+| Lang + Mode | 8B Baseline | DPO-8B | Δ |
+|-------------|------------:|-------:|--:|
+| Hindi zero-shot + thinking | 19.0% | 19.0% | 0.0 pt |
+| Hindi zero-shot + no-thinking | 21.0% | 21.0% | 0.0 pt |
+| Hindi few-shot + thinking | 23.0% | 23.0% | 0.0 pt |
+| Hindi few-shot + no-thinking | 24.0% | 24.0% | 0.0 pt |
+| English zero-shot + thinking | 28.0% | 29.0% | +1.0 pt |
+| English zero-shot + no-thinking | 31.0% | 32.0% | +1.0 pt |
+| English few-shot + thinking | 30.0% | 30.0% | 0.0 pt |
+| English few-shot + no-thinking | 33.0% | 34.0% | +1.0 pt |
+
+MILU is dominated by positional bias (both models mostly pick A); the DPO LoRA has no effect on Hindi MCQ accuracy and a marginal +1 pt noise-level gain on English.
+
+### NormAd — Indic social norm adherence
+
+| Mode | 8B Baseline acc | DPO-8B acc | Δ acc | Δ F1 |
+|------|----------------:|-----------:|------:|-----:|
+| no-context + zero-shot | 51.5% | **57.4%** | **+5.9 pt** | +0.045 |
+| no-context + few-shot | 53.8% | **58.6%** | **+4.7 pt** | +0.045 |
+| with-context + zero-shot | 68.0% | 68.6% | +0.6 pt | −0.017 |
+| with-context + few-shot | 69.8% | 68.6% | −1.2 pt | 0.000 |
+
+The biggest DPO gain is in the **no-context** modes (+5.9 / +4.7 pt). The model's improved preference reasoning (from hh-rlhf DPO training) transfers to judging whether actions are socially acceptable when no cultural background is given. With full context the gain flattens — the model already had strong cued reasoning and DPO doesn't improve it further.
+
+### Indian-BhED — Stereotype Score (lower = less biased)
+
+| Category | 8B Baseline | DPO-8B | Δ |
+|----------|------------:|-------:|--:|
+| Caste | 78.3% | 79.2% | +0.9 pt (worse) |
+| Religion | 61.0% | 63.4% | +2.4 pt (worse) |
+
+Stereotype scores slightly increased after DPO training. The hh-rlhf dataset's preference signal does not explicitly teach anti-stereotypical responses to Indian caste/religion prompts, so the already-high caste bias is not mitigated. This is a known limitation of training on generic English preference data.
+
+### Global Opinion QA — India alignment
+
+| Metric | 8B Baseline | DPO-8B | Δ |
+|--------|------------:|-------:|--:|
+| JS-Similarity (↑) | 0.6922 | 0.6922 | 0.0 |
+
+Unchanged — as expected, since DPO training on preference pairs does not shift opinion distributions.
+
+### Summary: 8B Baseline vs DPO-8B
+
+| Benchmark | 8B Baseline | DPO-8B | Δ | Direction |
+|-----------|------------:|-------:|--:|:---------:|
+| MILU Hindi (best acc, ↑) | 24.0% | 24.0% | 0 pt | = |
+| MILU English (best acc, ↑) | 33.0% | 34.0% | +1 pt | ↑ |
+| NormAd no-ctx (acc, ↑) | 53.8% | 58.6% | **+4.7 pt** | ↑↑ |
+| NormAd with-ctx (acc, ↑) | 69.8% | 68.6% | −1.2 pt | ≈ |
+| BhED Caste (→50%, ↓) | 78.3% | 79.2% | +0.9 pt | ↓ |
+| BhED Religion (→50%, ↓) | 61.0% | 63.4% | +2.4 pt | ↓ |
+| Global-Opinion India (JS-sim, ↑) | 0.692 | 0.692 | 0 | = |
+| HHH English (thinking, ↑) | 90.95% | 90.05% | −0.9 pt | ≈ |
+| HHH Hindi (thinking, ↑) | 86.70% | 84.40% | −2.3 pt | ↓ |
+| HHH Malayalam (thinking, ↑) | 79.09% | 80.91% | **+1.8 pt** | ↑ |
+
+**Takeaways from DPO fine-tuning:**
+
+1. **NormAd no-context improves the most (+5.9 pt).** The preference signal from hh-rlhf transfers to zero-shot social norm judgement, likely because both tasks require evaluating the acceptability of actions without being given explicit criteria. This is the clearest positive DPO result across all five benchmarks.
+
+2. **HHH Malayalam improves (+1.8 pt), HHH Hindi regresses slightly (−2.3 pt).** Languages with larger baseline gaps benefit from multilingual DPO data; the Hindi regression is concentrated in `honest` and `other` subsets, likely due to distribution mismatch between hh-rlhf and HHH eval styles.
+
+3. **MILU and GlobalOpinion are unaffected.** Both are heavily dominated by positional bias; DPO training on preference data cannot improve factual knowledge retrieval or opinion alignment.
+
+4. **BhED bias worsens slightly.** The hh-rlhf training corpus has no explicit debiasing signal for Indian caste/religion stereotypes, so the DPO training marginally amplifies the existing stereotypical pattern.
+
+5. **One epoch of DPO is not sufficient for broad Indic alignment improvement.** The results suggest that longer training with targeted Indic debiasing data (for BhED) and balanced preference data across language subsets (for HHH Hindi) would be needed for consistent gains across all five benchmarks.
+
+---
+
 ## Qualitative side-by-side (10 prompts)
 
 Same prompts sent to both models in parallel via vLLM. Responses are truncated for readability — full versions in `results/qualitative_1p5b_vs_8b.{json,md}`.
