@@ -109,11 +109,15 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     # ── Model ─────────────────────────────────────────────────────────────────
-    print(f"Loading model from {args.model}")
+    # With torchrun, LOCAL_RANK pins each process to its own GPU.
+    # CUDA_VISIBLE_DEVICES is NOT pre-filtered per process, so we use LOCAL_RANK directly.
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = f"cuda:{local_rank}"
+    print(f"Loading model from {args.model} on {device}")
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={"": device},
         trust_remote_code=True,
     )
     model.config.use_cache = False
