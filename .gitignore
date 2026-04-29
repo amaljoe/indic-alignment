@@ -3,3 +3,4 @@ finetune/checkpoints/
 __pycache__/
 *.pyc
 *.pyo
+checkpoints/
