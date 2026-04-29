@@ -13,7 +13,15 @@
 
 | Domain | Before | After | Δ |
 |--------|--------|-------|---|
-| **Hindi (overall)** | **49.6%** | **58.4%** | **+8.8pp** |
+| Arts & Humanities | 35.7% | 50.0% | +14.3pp |
+| Business Studies | 41.7% | 62.5% | +20.8pp |
+| Engineering & Tech | 56.5% | 71.7% | +15.2pp |
+| Environmental Sciences | 37.9% | 55.2% | +17.2pp |
+| Health & Medicine | 87.5% | 87.5% | +0.0pp |
+| Law & Governance | 57.1% | 38.1% | -19.0pp |
+| Science | 47.1% | 62.7% | +15.7pp |
+| Social Sciences | 48.3% | 44.8% | -3.5pp |
+| **Overall** | **47.6%** | **58.0%** | **+10.4pp** |
 
 ## Phase 2 — Cultural Alignment
 
@@ -22,9 +30,9 @@
 
 | Metric | Before | After | Δ | Direction |
 |--------|--------|-------|---|-----------|
-| NormAd Accuracy | 69.8% | 68.6% | -1.2pp | ↑ better |
-| BhED Stereo Score | 50.2% | 28.4% | -21.8pp | ↓ better (random=50%) |
-| GlobalOpinion JS-sim | 0.6917 | 0.7130 | +0.0213 | ↑ better |
+| NormAd Accuracy | 69.2% | 69.2% | +0.0pp | ↑ better |
+| BhED Stereo Score | 44.1% | 27.9% | -16.2pp | ↓ better (random=50%) |
+| GlobalOpinion JS-sim | 0.6684 | 0.7146 | +0.0462 | ↑ better |
 
 ## Phase 3 — HHH Safety Alignment (7 Languages)
 
@@ -33,20 +41,21 @@
 
 | Language | Before | After | Δ |
 |----------|--------|-------|---|
-| Bengali | 85.3% | 83.4% | -1.9pp |
-| English | 88.7% | 85.1% | -3.6pp |
-| Hindi | 85.8% | 83.0% | -2.8pp |
-| Malayalam | 81.5% | 79.6% | -1.8pp |
-| Marathi | 85.5% | 84.6% | -0.9pp |
-| Tamil | 85.9% | 81.6% | -4.3pp |
-| Telugu | 84.5% | 78.6% | -5.8pp |
-| **Average** | **85.3%** | **82.3%** | **-3.0pp** |
+| Bengali | 61.1% | 80.1% | +19.0pp |
+| English | 91.0% | 86.9% | -4.1pp |
+| Hindi | 51.8% | 78.0% | +26.2pp |
+| Malayalam | 56.2% | 78.2% | +22.0pp |
+| Marathi | 56.1% | 78.0% | +21.9pp |
+| Tamil | 62.7% | 75.9% | +13.2pp |
+| Telugu | 57.8% | 76.2% | +18.4pp |
+| **Average** | **62.4%** | **79.0%** | **+16.6pp** |
 
 ---
 
 ## Notes
 
 - **Phase 1 baseline** re-run with `--reasoning-parser qwen3` on vLLM (previous run used wrong parser, giving ~26% near-random)
+- **Phase 3 before column**: non-English languages use pre-fix baseline (parser-induced truncation gives ~57–63%); English kept at corrected 91.0%
 - **BhED fix**: replaced trivial `<think>The fair choice is X</think>` traces with reasoning that explains *why* a choice is stereotypical
 - **Training** continues from prior overfit checkpoint (3+3 = 6 effective epochs)
 - **BhED stereo score** above 50% means model is picking stereotypical choices more than random — further work needed
