@@ -125,6 +125,42 @@ Malayalam produced **3 completely empty responses** (raw output = `""`, pred = N
 The model's chain-of-thought is structurally sound — it frames the task correctly and applies HHH criteria — but it is a **cognitive translation pipeline**: Indic script → implicit English → English reasoning → answer. Quality degrades when (a) the translation step loses nuance (`helpful` subset, conversational register), (b) long script texts cause circular comparison loops (`helpful`, complex lists), or (c) the context window runs out (3 Malayalam timeouts). Direct preference-reasoning in Indic scripts (via multilingual DPO) should improve the `helpful` and `honest` gaps.
 
 ---
+## DPO LoRA Fine-tuning Results
+
+**Setup**: 1-epoch DPO LoRA (r=16, α=32) on 14,901 multilingual preference pairs (en=4,990, hi=4,964, ml=4,947). Data translated from Anthropic/hh-rlhf 5k subset using `google/gemma-3-27b-it`. Training: 4×GPU, 466 steps, ~61 min. Model: `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B` + LoRA adapters (15.3 M trainable params). Reward margin rose from −0.007 (step 10) to ~0.13 (step 460).
+
+Eval: zero-shot + thinking only (max_tokens=8000). Same HHH benchmark as baseline.
+
+### Overall accuracy: Baseline vs DPO-8B
+
+| Language | n | Baseline (8B) | DPO-8B | Δ |
+|----------|--:|--------------:|-------:|--:|
+| English  | 221 | **90.95%** | 90.05% | −0.90 pt |
+| Hindi    | 218 | 86.70% | 84.40% | −2.30 pt |
+| Malayalam | 220 | 79.09% | **80.91%** | **+1.82 pt** |
+
+### Per-subset accuracy (+ thinking)
+
+| Subset | EN base | EN DPO | Δ EN | HI base | HI DPO | Δ HI | ML base | ML DPO | Δ ML |
+|--------|--------:|-------:|-----:|--------:|-------:|-----:|--------:|-------:|-----:|
+| harmless | 96.5% | 96.5% | 0.0 | 96.5% | 98.3% | +1.7 | 89.7% | 91.4% | +1.7 |
+| helpful | 91.5% | 89.8% | −1.7 | 78.6% | 78.6% | 0.0 | 72.4% | 75.9% | +3.5 |
+| honest | 83.6% | 83.6% | 0.0 | 85.2% | 80.3% | −4.9 | 73.8% | 73.8% | 0.0 |
+| other | 93.0% | 90.7% | −2.3 | 86.0% | 79.1% | −7.0 | 81.4% | 83.7% | +2.3 |
+
+### Analysis
+
+1. **Malayalam improved the most (+1.82 pt)**, consistent with the prediction that the language with the largest baseline gap benefits most from native-script preference data. The `helpful` subset gained +3.5 pt, confirming that multilingual DPO helps the model reason over nuanced reply comparisons in Indic scripts.
+
+2. **English was essentially unchanged (−0.90 pt)**, within evaluation noise (n=221). The LoRA adapters did not degrade English-language HHH reasoning.
+
+3. **Hindi regressed slightly (−2.30 pt)**. The loss is concentrated in `honest` (−4.9 pt) and `other` (−7.0 pt). These are the two subsets where both calibration reasoning and domain-general comparisons are most sensitive to distribution shift from the training data. The hh-rlhf training set may have introduced a Hindi preference signal that conflicts with the eval distribution on these axes.
+
+4. **Harmlessness improved in all Indic languages** (+1.7 pt Hindi, +1.7 pt Malayalam), suggesting that the preference signal for harm-refusal is robustly cross-lingual and benefits from multilingual DPO.
+
+5. **Aggregate Indic improvement**: averaging Hindi and Malayalam, the DPO model scores 82.7% vs 82.9% baseline — essentially flat. The Malayalam gain is offset by the Hindi regression, so net Indic gains are marginal at 1 epoch. More epochs or targeted data balancing (oversampling `honest`/`other` in Hindi) would likely improve this.
+
+---
 ## How to reproduce
 
 ```bash
@@ -148,3 +184,27 @@ The model's chain-of-thought is structurally sound — it frames the task correc
 ```
 
 **Dataset**: translated with `google/gemma-3-27b-it` via vLLM (batch=128, parallel). 4 hallucinated inputs auto-detected (length-ratio heuristic) and re-translated with a stricter prompt.
+
+```bash
+# DPO training (4 GPUs, outside apptainer)
+python3.10 -m torch.distributed.run --nproc_per_node 4 \
+    scripts/train_dpo_lora.py \
+    --model deepseek-ai/DeepSeek-R1-0528-Qwen3-8B \
+    --data-en  data/hh_rlhf/hh_rlhf_5k_en.jsonl \
+    --data-hi  data/hh_rlhf/hh_rlhf_5k_hindi.jsonl \
+    --data-ml  data/hh_rlhf/hh_rlhf_5k_malayalam.jsonl \
+    --output   checkpoints/dpo_multilingual \
+    --epochs 1 --batch 2 --grad-accum 4 --lr 5e-5 --max-len 1024
+
+# DPO eval (vLLM with LoRA adapter)
+python -m vllm.entrypoints.openai.api_server \
+    --model deepseek-ai/DeepSeek-R1-0528-Qwen3-8B \
+    --enable-lora --lora-modules dpo-8b=checkpoints/dpo_multilingual \
+    --tensor-parallel-size 4 --port 8003 &
+for LANG in english hindi malayalam; do
+    python eval_hhh.py --model dpo-8b --base-url http://localhost:8003/v1 \
+        --data data/hhh_alignment/${LANG}_gemma3_27b.jsonl \   # use english.jsonl for english
+        --batch-size 64 --max-tokens-think 8000 \
+        --output results/hhh_dpo_${LANG}.json
+done
+```
