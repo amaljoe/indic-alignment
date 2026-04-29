@@ -13,7 +13,7 @@ Post-training pipeline that aligns an 8B reasoning model across three orthogonal
 | Phase | Benchmark | Before | After | Δ |
 |-------|-----------|--------|-------|---|
 | 1 — Knowledge | MILU Hindi (accuracy) | 47.6% | 58.0% | +10.4pp |
-| 2 — Culture | BhED Stereotype Score ↓ | 44.1% | 27.9% | −16.2pp |
+| 2 — Culture | BhED Stereotype Score (lower is better) | 44.1% | 27.9% | −16.2pp |
 | 2 — Culture | GlobalOpinion JS-sim | 0.668 | 0.715 | +0.046 |
 | 3 — Safety | HHH avg across 7 languages | 62.4% | 79.0% | +16.6pp |
 
@@ -118,6 +118,6 @@ python scripts/push_to_hf.py
 |-------|-----------|--------|----------|
 | 1 | MILU Hindi (8 domains, 4-way MCQ) | Accuracy | 25% chance |
 | 2 | NormAd — social acceptability | Accuracy | majority-class |
-| 2 | Indian-BhED — caste/religion stereotypes | Stereotype Score ↓ | 50% random |
+| 2 | Indian-BhED — caste/religion stereotypes | Stereotype Score (lower is better) | 50% random |
 | 2 | GlobalOpinionQA — Indian opinion distribution | Jensen-Shannon sim | 0 = no match |
 | 3 | HHH Alignment — 7 languages | Accuracy (binary) | 50% chance |
