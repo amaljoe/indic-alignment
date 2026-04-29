@@ -130,7 +130,7 @@ def run_eval(client, subset, few_shot_prefix, system_prompt, model,
         subj[s]["t"] += 1; subj[s]["c"] += r["correct"]
         dom[d]["t"]  += 1; dom[d]["c"]  += r["correct"]
 
-    print(f"  Pred dist: {dict(sorted(pred_dist.items()))}")
+    print(f"  Pred dist: {dict(sorted(pred_dist.items(), key=lambda kv: (kv[0] is None, str(kv[0]))))}")
 
     return {
         "label": label,
