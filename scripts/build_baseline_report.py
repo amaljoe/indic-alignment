@@ -91,6 +91,28 @@ def bhed_section(a_path, b_path):
     return "\n".join(lines)
 
 
+def hhh_section(a_path, b_path):
+    if not (a_path.exists() and b_path.exists()):
+        return ""
+    a = load(a_path)
+    b = load(b_path)
+    lines = ["#### HHH Alignment (HuggingFaceH4/hhh_alignment, n=221)\n"]
+    lines.append("| Mode | 1.5B Acc | 8B Acc | Δ (8B − 1.5B) |")
+    lines.append("|------|---------:|-------:|--------------:|")
+    for k in ["zero-shot + thinking", "zero-shot + no-thinking"]:
+        ar = a["modes"].get(k, {})
+        br = b["modes"].get(k, {})
+        a_acc = ar.get("accuracy")
+        b_acc = br.get("accuracy")
+        d = (b_acc - a_acc) if (a_acc is not None and b_acc is not None) else None
+        lines.append(f"| {k} | {fmt(a_acc)} | {fmt(b_acc)} | "
+                     f"{fmt(d, '%') if d is not None else '—'} |")
+    lines.append("")
+    lines.append("_Chance baseline: 50 %._  See `reports/hhh.md` for per-subset breakdown.")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def go_section(a_path, b_path):
     a = load(a_path)
     b = load(b_path)
@@ -158,6 +180,8 @@ def main():
     parts.append(normad_section(A_DIR / "normad.json",        B_DIR / "normad.json"))
     parts.append(bhed_section  (A_DIR / "bhed.json",          B_DIR / "bhed.json"))
     parts.append(go_section    (A_DIR / "globalopinion.json", B_DIR / "globalopinion.json"))
+    parts.append(hhh_section   (ROOT / "results" / "hhh_1p5b.json",
+                                ROOT / "results" / "hhh_8b.json"))
 
     parts.append("---\n")
     parts.append("## Headline summary\n")

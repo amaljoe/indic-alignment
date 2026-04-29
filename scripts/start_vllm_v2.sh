@@ -9,6 +9,7 @@ PORT=${2:-8002}
 TP=${3:-2}
 GPUS=${4:-0,1}
 SERVED_NAME=${5:-deepseek-r1}
+MAX_LEN=${MAX_LEN:-8192}
 
 LOG="$HOME/vllm_${SERVED_NAME}.log"
 
@@ -27,5 +28,5 @@ apptainer exec --nv --bind /scratch:/scratch ~/images/cuda-custom-amal_latest.si
     --port $PORT \
     --host 0.0.0.0 \
     --gpu-memory-utilization 0.90 \
-    --max-model-len 8192
+    --max-model-len $MAX_LEN
 " 2>&1 | tee "$LOG"

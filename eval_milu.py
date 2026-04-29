@@ -159,6 +159,13 @@ def main():
                         help="Parallel requests to vLLM (server queues automatically)")
     parser.add_argument("--output",      default="milu_results.json")
     parser.add_argument("--seed",        type=int, default=42)
+    parser.add_argument("--max-tokens-think",    type=int, default=512,
+                        help="max_tokens budget for thinking modes")
+    parser.add_argument("--max-tokens-no-think", type=int, default=16,
+                        help="max_tokens budget for no-thinking modes")
+    parser.add_argument("--modes", nargs="+",
+                        default=["zt","zn","ft","fn"],
+                        help="Subset of modes to run: zt=zero+think zn=zero+nothink ft=few+think fn=few+nothink")
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -174,12 +181,15 @@ def main():
 
     client = OpenAI(base_url=args.base_url, api_key="dummy")
 
-    configs = [
-        ("zero-shot + thinking",    "",               SYSTEM_WITH_THINK, 512),
-        ("zero-shot + no-thinking", "",               SYSTEM_NO_THINK,    16),
-        ("few-shot  + thinking",    few_shot_prefix,  SYSTEM_WITH_THINK, 512),
-        ("few-shot  + no-thinking", few_shot_prefix,  SYSTEM_NO_THINK,    16),
-    ]
+    mt_t = args.max_tokens_think
+    mt_n = args.max_tokens_no_think
+    all_configs = {
+        "zt": ("zero-shot + thinking",    "",              SYSTEM_WITH_THINK, mt_t),
+        "zn": ("zero-shot + no-thinking", "",              SYSTEM_NO_THINK,   mt_n),
+        "ft": ("few-shot  + thinking",    few_shot_prefix, SYSTEM_WITH_THINK, mt_t),
+        "fn": ("few-shot  + no-thinking", few_shot_prefix, SYSTEM_NO_THINK,   mt_n),
+    }
+    configs = [all_configs[k] for k in args.modes if k in all_configs]
 
     all_results = {}
     for label, prefix, sys_prompt, max_tok in configs:
