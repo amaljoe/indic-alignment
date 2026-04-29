@@ -1,6 +1,9 @@
-finetune/checkpoints/
 .claude/
 __pycache__/
 *.pyc
 *.pyo
 checkpoints/
+logs/
+results/
+data/phase2_cultural_sft.jsonl
+data/phase3_hhh_dpo.jsonl
