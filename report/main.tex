@@ -53,18 +53,18 @@
 \section{Introduction}
 % ============================================================
 
-Large language models (LLMs) are predominantly trained on data scraped from the English-language internet. The result is models that are fluent in English cultural norms, facts, and values but perform poorly on content rooted in non-Western contexts. For India—home to over 1.4 billion people, 22 scheduled languages, and a rich diversity of cultures and social norms—this gap is particularly consequential.
+Large language models (LLMs) are predominantly trained on data scraped from the English-language internet, which means they are generally stronger on English cultural norms, facts, and values than on content from non-Western contexts. India has over 1.4 billion people, 22 scheduled languages, and considerable regional diversity, so this gap has real practical implications.
 
-The problem is not merely one of language translation. A model that can produce grammatically correct Hindi may still hold Western cultural priors, fail to recall Indian educational content, or respond unsafely when prompted in Marathi or Tamil. Translation bridges the surface; alignment must go deeper.
+The issue goes beyond translation. A model that outputs grammatically correct Hindi may still carry Western cultural assumptions, lack Indian educational content, or behave unsafely when prompted in Marathi or Tamil. Language fluency and alignment are separate problems.
 
-We identify three distinct dimensions of this \textit{alignment gap} for Indic languages:
+We focus on three dimensions of this \textit{alignment gap} for Indic languages:
 \begin{enumerate}
-    \item \textbf{Factual knowledge} — Does the model know the content of Indian education spanning science, law, history, and medicine when asked in Hindi?
-    \item \textbf{Cultural understanding} — Does it reason correctly about Indian social norms? Does it hold stereotypes about caste and religion? Do its expressed opinions resemble those of actual Indian people?
-    \item \textbf{Safety alignment} — Is it helpful, harmless, and honest across all major Indic languages, not just English?
+    \item \textbf{Factual knowledge:} Does the model know the content of Indian education across science, law, history, and medicine when asked in Hindi?
+    \item \textbf{Cultural understanding:} Does it reason correctly about Indian social norms? Does it exhibit stereotypes about caste and religion? Do its expressed opinions reflect those of Indian people?
+    \item \textbf{Safety alignment:} Is it helpful, harmless, and honest across major Indic languages, not just English?
 \end{enumerate}
 
-Each dimension is a distinct failure mode that calls for a different fix. This report documents how we addressed all three using a single 8-billion-parameter model—\texttt{DeepSeek-R1-0528-Qwen3-8B}—and a sequential three-phase post-training pipeline: Supervised Fine-Tuning (SFT) for factual knowledge, knowledge distillation for cultural reasoning, and Direct Preference Optimisation (DPO) for multilingual safety.
+Each of these requires a different training approach. This report describes how we addressed all three using \texttt{DeepSeek-R1-0528-Qwen3-8B} and a sequential three-phase post-training pipeline: Supervised Fine-Tuning (SFT) for factual knowledge, knowledge distillation for cultural reasoning, and Direct Preference Optimisation (DPO) for multilingual safety.
 
 % ============================================================
 \section{Motivation}
@@ -72,24 +72,24 @@ Each dimension is a distinct failure mode that calls for a different fix. This r
 
 \subsection{The Factual Gap}
 
-MILU (Multitask Indian Language Understanding) is a benchmark of $\sim$85,000 MCQ questions spanning 8 domains and 11 Indic languages, modelled on MMLU but built from Indian educational sources. Evaluated on Hindi, the unaligned base model achieves 47.6\% overall—barely above chance (25\%). Domains such as Arts \& Humanities (35.7\%) and Environmental Sciences (37.9\%) hover near random performance, revealing a clear gap in Indian domain knowledge.
+MILU (Multitask Indian Language Understanding) is a benchmark of $\sim$85,000 MCQ questions spanning 8 domains and 11 Indic languages, modelled on MMLU but built from Indian educational sources. Evaluated on Hindi, the unaligned base model achieves 47.6\% overall, barely above chance (25\%). Domains such as Arts \& Humanities (35.7\%) and Environmental Sciences (37.9\%) are close to random performance, indicating a clear gap in Indian domain knowledge.
 
 \subsection{The Cultural Gap}
 
 Cultural alignment is harder to capture with a single metric. Three complementary benchmarks together cover different facets:
 \begin{itemize}
-    \item \textbf{NormAd}: Short vignettes about South Asian social situations; the model must judge whether the described behaviour is acceptable. The base model achieves 69.2\%—reasonable, but it lacks the reasoning depth to generalise to novel situations.
-    \item \textbf{Indian-BhED}: A bias evaluation dataset for Indian caste and religious stereotypes. The stereotype score measures the fraction of responses that pick the stereotypical option; 50\% is random, and \textit{lower is better}. The base model scores 44.1\%—weakly anti-stereotypical only by chance.
-    \item \textbf{GlobalOpinionQA (India)}: Measures how closely the model's expressed opinions on religion, family, and governance match the empirical distribution of Indian survey respondents, using Jensen-Shannon similarity (JS-sim; 1.0 = perfect match). Base score: 0.6684.
+    \item \textbf{NormAd}: Short vignettes about South Asian social situations where the model must judge whether the described behaviour is acceptable. The base model achieves 69.2\%, which is reasonable but leaves room for improvement on novel situations.
+    \item \textbf{Indian-BhED}: A bias evaluation dataset for Indian caste and religious stereotypes. The stereotype score measures the fraction of responses that pick the stereotypical option; 50\% is random and \textit{lower is better}. The base model scores 44.1\%, which is weakly anti-stereotypical only by chance.
+    \item \textbf{GlobalOpinionQA (India)}: Measures how closely the model's expressed opinions on religion, family, and governance match the distribution of Indian survey respondents, using Jensen-Shannon similarity (JS-sim; 1.0 = perfect match). Base score: 0.6684.
 \end{itemize}
 
 \subsection{The Safety Gap}
 
-The HHH (Helpful, Harmless, Honest) Alignment benchmark presents pairs of responses and asks which is better aligned. Chance is 50\%. The unaligned model achieves 91.0\% in English—already strong—but only 51.8\%–62.7\% in Indic languages. Hindi (51.8\%), Malayalam (56.2\%), and Marathi (56.1\%) are essentially at random, meaning the model's safety training did not transfer to non-English contexts at all.
+The HHH (Helpful, Harmless, Honest) Alignment benchmark presents pairs of responses and asks which is better aligned. Chance is 50\%. The unaligned model achieves 91.0\% in English but only 51.8\%--62.7\% in Indic languages. Hindi (51.8\%), Malayalam (56.2\%), and Marathi (56.1\%) are close to random, indicating that safety training did not transfer to non-English contexts.
 
 \subsection{Model Selection: Why the 8B Model}
 
-We initially considered \texttt{DeepSeek-R1-Distill-Qwen-1.5B} to reduce compute costs. However, the 1.5B distilled model exhibited \textbf{positional bias} in the HHH forced-choice evaluation: it consistently selected option A (or B) regardless of content, producing near-random scores indistinguishable from chance. This bias was absent in the 8B model, which already showed the 91\% English safety score described above. We therefore adopted \texttt{DeepSeek-R1-0528-Qwen3-8B} for all evaluation and training.
+We initially considered \texttt{DeepSeek-R1-Distill-Qwen-1.5B} to reduce compute costs. However, the 1.5B distilled model showed a clear \textbf{positional bias} in the HHH forced-choice evaluation, consistently picking option A (or B) regardless of response content. This resulted in near-random scores across all languages. The 8B model did not exhibit this behaviour and scored 91\% on English HHH without any training. We therefore used \texttt{DeepSeek-R1-0528-Qwen3-8B} for all experiments.
 
 % ============================================================
 \section{Methodology}
@@ -97,7 +97,7 @@ We initially considered \texttt{DeepSeek-R1-Distill-Qwen-1.5B} to reduce compute
 
 \subsection{Base Model}
 
-\texttt{DeepSeek-R1-0528-Qwen3-8B} is an 8B reasoning model that natively supports chain-of-thought via a \texttt{<think>...</think>} block. We exploit this \textit{think/no-think} switch selectively per phase: thinking mode benefits tasks requiring multi-step cultural inference, while no-think mode is preferable for fast recall or binary preference selection.
+\texttt{DeepSeek-R1-0528-Qwen3-8B} is an 8B reasoning model that supports chain-of-thought via a \texttt{<think>...</think>} block. We use this \textit{think/no-think} switch selectively depending on the task: thinking mode is useful for multi-step cultural inference, while no-think mode is better for fast recall or binary preference selection.
 
 \begin{table}[h]
 \centering
@@ -106,18 +106,18 @@ We initially considered \texttt{DeepSeek-R1-Distill-Qwen-1.5B} to reduce compute
 \toprule
 \textbf{Phase} & \textbf{Mode} & \textbf{Rationale} \\
 \midrule
-Phase 1 — Factual (MILU) & No-think & MCQ recall benefits from direct output; thinking adds noise \\
-Phase 2 — Cultural       & Think    & Cultural judgment requires multi-step reasoning \\
-Phase 3 — Safety (HHH)  & No-think & Binary preference selection is fast; thinking not needed \\
+Phase 1: Factual (MILU) & No-think & MCQ recall benefits from direct output; thinking adds noise \\
+Phase 2: Cultural        & Think    & Cultural judgment requires multi-step reasoning \\
+Phase 3: Safety (HHH)   & No-think & Binary preference selection is fast; thinking not needed \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Using the wrong mode has real consequences: evaluating MILU in think mode with an incorrect reasoning parser dropped accuracy from $\sim$47\% to $\sim$26\% (near-random) because the answer letter was consumed inside the reasoning trace.
+Mode selection matters in practice: evaluating MILU in think mode with an incorrect reasoning parser dropped accuracy from $\sim$47\% to $\sim$26\% because the answer letter was consumed inside the reasoning trace.
 
 \subsection{Training Setup}
 
-All phases use \textbf{LoRA} (Low-Rank Adaptation), loaded hot into a running vLLM server via \texttt{POST /v1/load\_lora\_adapter}—no model restart required between phases. The three phases are stacked sequentially (Phase 2 continues from Phase 1 checkpoint; Phase 3 from Phase 2), so all three alignment improvements accumulate in the final model.
+All phases use \textbf{LoRA} (Low-Rank Adaptation), loaded into a running vLLM server via \texttt{POST /v1/load\_lora\_adapter} with no model restart between phases. The phases are stacked sequentially: Phase 2 continues from the Phase 1 checkpoint, and Phase 3 continues from Phase 2, so all three alignment changes accumulate in the final model.
 
 \begin{table}[h]
 \centering
@@ -138,9 +138,9 @@ Target modules   & \texttt{q\_proj, k\_proj, v\_proj, o\_proj} \\
 
 \textbf{Data:} 2,500 Hindi + 2,500 English questions from the official MILU train split (5,000 total).
 
-\textbf{Method:} Direct SFT on gold answer letters (A/B/C/D). No teacher model is needed—the benchmark provides ground truth. Training examples and evaluation prompts use an identical system prompt (\textit{``Respond with ONLY the single letter A, B, C, or D''}), ensuring format alignment between training and inference. Sequence length is capped at 512 tokens.
+\textbf{Method:} Direct SFT on gold answer letters (A/B/C/D). No teacher model is needed since the benchmark provides ground truth. Training and evaluation prompts use the same system prompt (\textit{``Respond with ONLY the single letter A, B, C, or D''}), keeping the format consistent between training and inference. Sequence length is capped at 512 tokens.
 
-SFT is the right choice here because the problem is one of \textit{knowledge recall} under a constrained output format. The model already knows how to reason; it lacks Indic-domain facts and the specific output format. Injecting a reasoning trace (as distillation would) would add noise to a recall task.
+SFT works well here because the task is essentially factual recall under a fixed output format. The model lacks Indic-domain knowledge rather than reasoning ability, so adding reasoning traces (as distillation would) would just introduce noise.
 
 \subsection{Phase 2: Cultural Reasoning via Knowledge Distillation}
 
@@ -150,7 +150,7 @@ SFT is the right choice here because the problem is one of \textit{knowledge rec
 
 \textbf{Method:} Rejection-sampled chain-of-thought distillation. Gemma is prompted with the full cultural context (including explicit cultural background paragraphs for NormAd), asked to reason inside a \texttt{<think>} block, and produce an answer. Only samples where Gemma's answer matches ground truth are retained. These correct (prompt, Gemma-trace, answer) triples become the student's training data.
 
-A key design choice is \textbf{context distillation}: the teacher sees the full cultural scaffolding; the student training input deliberately omits it. The student must learn to produce culturally-informed reasoning \textit{without} being handed the cultural hint—forcing genuine knowledge internalisation rather than pattern matching.
+A key design choice is \textbf{context distillation}: the teacher sees the full cultural scaffolding while the student training input deliberately omits it. This means the student must learn to produce culturally-informed reasoning without being given explicit cultural hints, which encourages genuine knowledge internalisation rather than surface-level pattern matching.
 
 \begin{table}[h]
 \centering
@@ -166,13 +166,13 @@ GlobalOpinion & India-specific framing               & Question + options only \
 \end{tabular}
 \end{table}
 
-Sequence length is 4,096 tokens (Gemma traces run 500–2,000 tokens); gradient checkpointing is mandatory. An early run produced degenerate BhED traces (\texttt{<think>The fair choice is B</think>}); these were replaced with traces explaining \textit{why} a group is stereotyped, forcing the model to reason about bias rather than memorise it.
+Sequence length is 4,096 tokens since Gemma traces can run 500--2,000 tokens, making gradient checkpointing necessary. An early run produced degenerate BhED traces such as \texttt{<think>The fair choice is B</think>}. These were replaced with traces that explain \textit{why} a particular completion is stereotypical, so the model learns to reason about bias rather than just memorise an answer.
 
 \subsection{Phase 3: Safety Alignment via Direct Preference Optimisation}
 
 \textbf{Data:} $\sim$19,000 preference pairs from Anthropic HH-RLHF, extended to 7 languages.
 
-\textbf{Method:} DPO with LoRA. Safety is a \textit{comparative} property: a model that only sees positive examples learns what a safe response looks like but has no signal about what to avoid. DPO trains on (prompt, chosen, rejected) triples with the objective:
+\textbf{Method:} DPO with LoRA. A model trained only on positive examples can learn what a safe response looks like, but without seeing the worse alternative it has no signal about what to avoid. DPO trains on (prompt, chosen, rejected) triples with the objective:
 \[
 \mathcal{L}_{\text{DPO}} = -\log\,\sigma\!\Bigl(\beta\,\bigl[\log\pi(\text{chosen}\mid\text{prompt}) - \log\pi(\text{rejected}\mid\text{prompt})\bigr]\Bigr)
 \]
@@ -237,9 +237,9 @@ Social Sciences        & 48.3\% & 44.8\% & $-$3.5pp \\
 \end{tabular}
 \end{table}
 
-Six of eight domains improve, and overall accuracy rises 10.4 percentage points from 47.6\% to 58.0\%. The gains are strong and consistent across Arts, Business, Engineering, Environmental Sciences, and Science—all disciplines with clear, factual answers well-represented in MILU's Hindi training data.
+Six of eight domains improve and overall accuracy rises from 47.6\% to 58.0\% (+10.4pp). The gains are consistent across Arts, Business, Engineering, Environmental Sciences, and Science, all domains with well-defined factual answers.
 
-Two domains regress. Law \& Governance drops 19pp—the most specialised domain in MILU, tied to specific statutory language, court citations, and procedural rules that vary between Indian states. With 5,000 training examples spread across 8 domains, the data is too sparse for a domain this complex, and the model appears to have overfit to a distribution that does not generalise to the test questions. Health \& Medicine was already at ceiling (87.5\%); SFT on 5,000 examples cannot push a near-ceiling score further.
+Two domains regress. Law \& Governance drops 19pp. It is the most specialised domain in MILU, involving statutory language, court citations, and procedural rules specific to Indian states. With 5,000 training examples spread across 8 domains, there is simply not enough law-specific data, and the model appears to have overfit in a way that does not generalise to test questions. Health \& Medicine was already at ceiling (87.5\%), so there was little room for further improvement from SFT on this dataset size.
 
 \subsection{Phase 2: Cultural Alignment}
 
@@ -264,11 +264,11 @@ GlobalOpinion JS-sim      & 0.6684  & 0.7146  & +0.0462   & $\uparrow$ better \\
 \end{tabular}
 \end{table}
 
-The most striking result is the BhED stereotype score, which drops from 44.1\% to 27.9\%—a 16.2pp reduction. Before training the model was weakly anti-stereotypical (44.1\% $<$ 50\% random) only by chance; after distillation it clearly avoids stereotypical completions in 72\% of cases. This validates the distillation approach: teaching the model \textit{why} certain completions are stereotypical, rather than supplying a label, produces genuine generalisation.
+The largest improvement is in BhED stereotype score, which drops from 44.1\% to 27.9\% (a 16.2pp reduction). Before training, the model was weakly anti-stereotypical only by chance (44.1\% $<$ 50\% random); after distillation it avoids stereotypical completions in 72\% of cases. This suggests that teaching the model \textit{why} a completion is stereotypical, through reasoning traces, works better than training on labels alone.
 
-NormAd holds flat at 69.2\%. This is not a failure—it means social acceptability reasoning is preserved while bias and opinion training is applied. The 69.2\% baseline itself suggests the model had absorbed substantial Indian social norms from pretraining; future work with a larger NormAd training set (we used $\sim$169 Indic rows) could push further.
+NormAd holds flat at 69.2\%. This means social acceptability reasoning was not degraded by the bias and opinion training. The baseline of 69.2\% is already reasonable, likely because the model picked up Indian social norms during pretraining; a larger NormAd training set (we only used $\sim$169 Indic rows) would be needed to improve further.
 
-GlobalOpinion JS-similarity improves from 0.6684 to 0.7146 (+0.046): the model's expressed opinions on religion, family, and governance now better match the empirical Indian population distribution.
+GlobalOpinion JS-similarity improves from 0.6684 to 0.7146 (+0.046), indicating that the model's expressed opinions on religion, family, and governance moved closer to the Indian population distribution.
 
 \subsection{Phase 3: HHH Safety Alignment (7 Languages)}
 
@@ -300,28 +300,28 @@ Telugu    & 57.8\% & 76.2\% & +18.4pp \\
 \end{tabular}
 \end{table}
 
-This is the most consistent set of results across the three phases. Every Indic language improves by at least 13pp. Hindi gains 26.2pp (51.8\% $\to$ 78.0\%); Malayalam 22.0pp; Marathi 21.9pp. The 7-language average rises from 62.4\% to 79.0\%.
+Results here are the most consistent across all three phases. Every Indic language improves by at least 13pp. Hindi gains 26.2pp (51.8\% to 78.0\%), Malayalam gains 22.0pp, and Marathi gains 21.9pp. The 7-language average rises from 62.4\% to 79.0\%.
 
-The Indic baselines deserve attention: Hindi at 51.8\% is barely above the 50\% random baseline, and Malayalam, Marathi, Telugu, and Bengali were all in the 56–63\% range—the model's safety alignment was almost entirely non-functional in these languages before training. After DPO across all seven languages, every language lands in the 76–80\% band.
+The pre-training baselines are worth noting: Hindi at 51.8\% is barely above the 50\% random baseline, and Malayalam, Marathi, Telugu, and Bengali were all in the 56--63\% range. Safety alignment was largely non-functional in these languages before training. After DPO across all seven languages, every language falls in the 76--80\% range.
 
-The only regression is English, which drops 4.1pp (91.0\% $\to$ 86.9\%). This is a classic \textit{alignment tax}: adding training data in Indic languages shifts the model slightly away from its English-tuned state. The tradeoff is clearly favourable—86.9\% is still well above the 50\% chance baseline, and the gains in Indic languages are 4–7$\times$ larger.
+English drops 4.1pp (91.0\% to 86.9\%), which is a known side effect of multilingual fine-tuning. At 86.9\%, English performance is still well above the 50\% chance baseline, and the gains in Indic languages are considerably larger, making the tradeoff acceptable.
 
 % ============================================================
 \section{Conclusion}
 % ============================================================
 
-We demonstrated that a single 8B model can be meaningfully improved across three distinct Indic alignment axes—factual knowledge, cultural understanding, and multilingual safety—using a sequential three-phase pipeline that stacks LoRA adapters without catastrophic forgetting between phases.
+This project evaluated and improved a single 8B model across three Indic alignment axes (factual knowledge, cultural understanding, and multilingual safety) using a sequential LoRA-based pipeline with no catastrophic forgetting between phases.
 
 \paragraph{Factual knowledge.}
-SFT on 5,000 curated Hindi MCQ examples produces a +10.4pp overall gain on MILU, with strong domain-level improvements in Arts, Business, Engineering, Environmental Sciences, and Science. The result confirms that Indic factual knowledge can be injected efficiently with a clean data format and matched train/eval prompts. The Law \& Governance regression ($-$19pp) is the most instructive failure: the domain demands statutory precision that 5,000 cross-domain examples cannot cover. Domain-targeted data curation—Indian legal texts, court judgements, civics materials—is the clear next step.
+SFT on 5,000 Hindi MCQ examples produced a +10.4pp overall gain on MILU, with improvements in five of eight domains. The Law \& Governance regression ($-$19pp) is the clearest limitation: statutory and procedural content is highly specialised and 5,000 cross-domain examples are not sufficient. Collecting domain-targeted data from Indian legal texts, court judgements, and civics materials would likely fix this.
 
 \paragraph{Cultural understanding.}
-Distillation from a larger teacher (Gemma 3 27B) forces the student to internalise cultural reasoning rather than memorise labels. The BhED stereotype score drops from 44.1\% to 27.9\%, pushing the model from near-random to clearly anti-stereotypical behaviour on Indian caste and religious bias. GlobalOpinion JS-similarity improves by 0.046, moving the model's expressed opinions closer to the empirical Indian distribution. NormAd stability (69.2\% maintained) shows that cross-task distillation does not degrade social acceptability reasoning. Future work should expand NormAd training data to push past the 69\% plateau and explore contrastive (DPO-style) training directly on BhED to further reduce the residual stereotype rate.
+Distillation from Gemma 3 27B improved the BhED stereotype score from 44.1\% to 27.9\%, showing that training on reasoning traces is more effective than training on labels alone for this kind of task. GlobalOpinion JS-similarity also improved by 0.046. NormAd remained stable at 69.2\%, meaning the cultural training did not hurt social acceptability reasoning. The residual stereotype rate of 27.9\% and the NormAd plateau both suggest that a larger and more diverse training set would help in future iterations.
 
 \paragraph{Multilingual safety.}
-DPO with $\sim$19,000 preference pairs across 7 languages lifts all Indic languages from near-random (52–63\%) to consistently strong (76–80\%) HHH alignment, demonstrating that safety alignment \textit{can} transfer across scripts and language families when the training data explicitly covers them. The modest English alignment tax ($-$4.1pp) is an expected and acceptable tradeoff. Scaling DPO data for Tamil, Bengali, Telugu, and Marathi from $\sim$2k to 5k pairs would likely close the small remaining gap relative to English-heavy languages.
+DPO with $\sim$19,000 preference pairs across 7 languages brought all Indic languages from the 52--63\% range to 76--80\% HHH accuracy. This shows that multilingual safety alignment is achievable with translated preference data, even for lower-resource languages like Marathi and Bengali that received only $\sim$2k training pairs. Scaling these to 5k pairs would likely narrow the small gap that remains compared to English and Hindi.
 
 \paragraph{Overall.}
-The core finding stands: the alignment gap for Indic languages is real, measurable on three distinct axes, and addressable with appropriate post-training methods—SFT for factual recall, distillation for cultural reasoning, and DPO for preference alignment. Each method was chosen because it matches the structure of the learning problem; that match is what makes the pipeline work. The final model is publicly available at \href{https://huggingface.co/amaljoe88/deepseek-r1-8b-indic-aligned}{\texttt{amaljoe88/deepseek-r1-8b-indic-aligned}}.
+The alignment gap for Indic languages is measurable on three distinct axes and can be addressed with relatively small but appropriately constructed datasets. The choice of training method matters: SFT for factual recall, distillation for cultural reasoning, and DPO for preference-based safety are each well-matched to the structure of their respective tasks. The final model is publicly available at \href{https://huggingface.co/amaljoe88/deepseek-r1-8b-indic-aligned}{\texttt{amaljoe88/deepseek-r1-8b-indic-aligned}}.
 
 \end{document}
