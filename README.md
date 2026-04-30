@@ -3,8 +3,7 @@
 Post-training pipeline that aligns an 8B reasoning model across three orthogonal axes of Indic alignment: factual knowledge, cultural understanding, and multilingual safety.
 
 **Model on HuggingFace:** [amaljoe88/deepseek-r1-8b-indic-aligned](https://huggingface.co/amaljoe88/deepseek-r1-8b-indic-aligned)  
-**Write-up:** [blog.md](blog.md)  
-**Technical report:** [Indic Alignment of DeepSeek.pdf](Indic%20Alignment%20of%20DeepSeek.pdf)
+**Technical report:** [report/main.pdf](report/main.pdf)
 
 ---
 
@@ -52,8 +51,9 @@ indic-alignment/
 ├── data/                     # Training data (gitignored large files)
 ├── checkpoints/              # LoRA checkpoints (gitignored)
 ├── results/                  # Eval result JSONs (gitignored)
-├── blog.md                   # Long-form write-up
-└── Indic Alignment of DeepSeek.pdf
+└── report/
+    ├── main.tex              # LaTeX source
+    └── main.pdf              # Compiled report
 ```
 
 ---
