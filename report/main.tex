@@ -27,7 +27,7 @@
 \title{%
     \Large\textbf{Indic Alignment of DeepSeek Model}\\[6pt]
     \large Knowledge, Culture, and Safety Across Seven Languages\\[10pt]
-    \normalsize CS6103: Human Centered AI \quad|\quad IIT Bombay\\
+    \normalsize CS6103: Human Centered AI, IIT Bombay\\
     \normalsize Professor: Prof.\ Arpit Agarwal\\[4pt]
     \normalsize Team Name: \textbf{Alpha\_bet}
 }
@@ -178,7 +178,7 @@ Sequence length is 4,096 tokens since Gemma traces can run 500--2,000 tokens, ma
 \]
 where $\beta=0.1$ controls the strength of preference push relative to the prior. No separate reward model is required.
 
-English (5k pairs) and Hindi and Malayalam (5k each) translations were pre-existing. Tamil, Bengali, Telugu, and Marathi ($\sim$2k each) were translated using Gemma 3 27B with 128 concurrent API calls, preserving the \texttt{\textbackslash n\textbackslash nHuman:} / \texttt{\textbackslash n\textbackslash nAssistant:} conversation markers verbatim. The HHH evaluation set (221 examples per language) was also translated for held-out multilingual evaluation.
+Only the English data (5k pairs) was pre-existing. All six Indic language datasets were created by translating the English pairs using Gemma 3 27B with 128 concurrent API calls, preserving the \texttt{\textbackslash n\textbackslash nHuman:} / \texttt{\textbackslash n\textbackslash nAssistant:} conversation markers verbatim. Hindi and Malayalam received 5k pairs each; Tamil, Bengali, Telugu, and Marathi received $\sim$2k each. The HHH evaluation set (221 examples per language) was also translated for held-out multilingual evaluation.
 
 DPO hyperparameters: $\beta=0.1$, \texttt{max\_seq\_len}=2,048, 3 epochs, \texttt{lr}=5$\times$10$^{-5}$.
 
