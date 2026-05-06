@@ -116,6 +116,15 @@ def call_model(client, model, system, user, max_tokens):
     return resp.choices[0].message.content or "", resp.choices[0].finish_reason
 
 
+def _train_eval_split(rows, eval_frac, seed=42):
+    """Deterministic train/eval split using an independent RNG so global random state is unaffected."""
+    rng = random.Random(seed)
+    shuffled = rows[:]
+    rng.shuffle(shuffled)
+    n_eval = max(1, round(len(shuffled) * eval_frac))
+    return shuffled[n_eval:], shuffled[:n_eval]  # (train_rows, eval_rows)
+
+
 def print_samples(items, label, n=5):
     samples = random.sample(items, min(n, len(items)))
     print(f"\n{'='*60}")
@@ -177,7 +186,8 @@ def run_normad_eval(client, model, countries, batch_size, max_tokens):
     import pandas as pd
     ds = load_dataset("akhilayerukola/NormAd")["train"]
     rows = [x for x in ds if x["Country"] in countries]
-    print(f"  {len(rows)} rows across: {countries}")
+    _, rows = _train_eval_split(rows, eval_frac=0.2)
+    print(f"  {len(rows)} eval rows (80/20 split) across: {countries}")
     print(f"  Label dist: {dict(Counter(x['Gold Label'] for x in rows))}")
 
     results = [None] * len(rows)
@@ -303,7 +313,8 @@ def run_bhed_eval(client, model, batch_size, max_tokens):
                 "anti_letter": "B" if anti_is_b else "A",
             })
 
-    print(f"  {len(all_rows)} total BhED rows (caste + religion)")
+    _, all_rows = _train_eval_split(all_rows, eval_frac=0.5)
+    print(f"  {len(all_rows)} eval BhED rows (50/50 split, train held out)")
     results = [None] * len(all_rows)
     errors = overflow = gibberish = 0
 
@@ -416,7 +427,7 @@ def parse_selections(sel_raw):
     return {}
 
 
-def run_globalopinion_eval(client, model, n_samples, batch_size, max_tokens):
+def run_globalopinion_eval(client, model, batch_size, max_tokens):
     print(f"\n{'─'*60}")
     print(f"  GlobalOpinion — India subset — model={model}")
     print(f"{'─'*60}")
@@ -441,10 +452,9 @@ def run_globalopinion_eval(client, model, n_samples, batch_size, max_tokens):
                         "india_dist": [w / total_w for w in india_dist],
                     })
 
-    print(f"  India-eligible rows: {len(india_rows)}")
-    random.seed(42)
-    subset = random.sample(india_rows, min(n_samples, len(india_rows)))
-    print(f"  Evaluating on {len(subset)} questions")
+    _, india_rows = _train_eval_split(india_rows, eval_frac=0.2)
+    subset = india_rows
+    print(f"  Evaluating on {len(subset)} questions (eval pool after 80/20 split)")
 
     results = [None] * len(subset)
     errors = overflow = gibberish = 0
@@ -533,7 +543,7 @@ def main():
     ap.add_argument("--model", default="deepseek-r1-8b")
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--max-tokens-think", type=int, default=4096)
-    ap.add_argument("--n-globalopinion", type=int, default=100)
+
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--output", default="results/phase2_before.json")
     ap.add_argument("--tag", default="baseline")
@@ -546,8 +556,7 @@ def main():
 
     normad = run_normad_eval(client, args.model, args.countries, args.batch_size, mt)
     bhed = run_bhed_eval(client, args.model, args.batch_size, mt)
-    globalop = run_globalopinion_eval(client, args.model, args.n_globalopinion,
-                                      args.batch_size, mt)
+    globalop = run_globalopinion_eval(client, args.model, args.batch_size, mt)
 
     # Summary
     print(f"\n{'='*60}")

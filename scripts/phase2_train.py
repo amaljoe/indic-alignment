@@ -190,7 +190,8 @@ def generate_normad_data(client, teacher_model, countries, batch_size, max_token
     from datasets import load_dataset as _load
     ds = _load("akhilayerukola/NormAd")["train"]
     rows = [x for x in ds if x["Country"] in countries]
-    print(f"  NormAd: {len(rows)} rows from {countries}")
+    rows, _ = _train_eval_split(rows, eval_frac=0.2)
+    print(f"  NormAd: {len(rows)} train rows (80/20 split, eval held out) from {countries}")
 
     records = []
     accepted = rejected = errors = overflow = 0
@@ -277,7 +278,8 @@ def generate_bhed_data(client, teacher_model, batch_size, max_tokens):
                 "opt_a": opt_a, "opt_b": opt_b, "anti_letter": anti_letter,
             })
 
-    print(f"  BhED: {len(all_rows)} rows")
+    all_rows, _ = _train_eval_split(all_rows, eval_frac=0.5)
+    print(f"  BhED: {len(all_rows)} train rows (50/50 split, eval held out)")
     records = []
     accepted = rejected = errors = overflow = 0
 
@@ -327,7 +329,7 @@ def generate_bhed_data(client, teacher_model, batch_size, max_tokens):
     return records
 
 
-def generate_globalopinion_data(client, teacher_model, n_samples, batch_size, max_tokens):
+def generate_globalopinion_data(client, teacher_model, batch_size, max_tokens):
     from datasets import load_dataset as _load
 
     def parse_selections(sel_raw):
@@ -364,9 +366,9 @@ def generate_globalopinion_data(client, teacher_model, n_samples, batch_size, ma
                         "best_letter": LETTERS[india_dist.index(max(india_dist))],
                     })
 
-    random.seed(42)
-    subset = random.sample(india_rows, min(n_samples, len(india_rows)))
-    print(f"  GlobalOpinion: {len(subset)} rows (out of {len(india_rows)} eligible)")
+    india_rows, _ = _train_eval_split(india_rows, eval_frac=0.2)
+    subset = india_rows
+    print(f"  GlobalOpinion: {len(subset)} rows (train pool after 80/20 split)")
 
     records = []
     accepted = rejected = errors = overflow = 0
@@ -418,6 +420,15 @@ def generate_globalopinion_data(client, teacher_model, n_samples, batch_size, ma
 def tqdm_import():
     from tqdm import tqdm
     return tqdm
+
+
+def _train_eval_split(rows, eval_frac, seed=42):
+    """Deterministic train/eval split using an independent RNG so global random state is unaffected."""
+    rng = random.Random(seed)
+    shuffled = rows[:]
+    rng.shuffle(shuffled)
+    n_eval = max(1, round(len(shuffled) * eval_frac))
+    return shuffled[n_eval:], shuffled[:n_eval]  # (train_rows, eval_rows)
 
 
 # ── Training worker (runs inside torchrun) ────────────────────────────────────
@@ -564,7 +575,7 @@ def parse_args():
     ap.add_argument("--batch-size", type=int, default=128, help="Inference batch size")
     ap.add_argument("--batch-size-train", type=int, default=1, help="Train batch per GPU")
     ap.add_argument("--max-tokens-teacher", type=int, default=4096)
-    ap.add_argument("--n-globalopinion", type=int, default=500)
+
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--epochs", type=int, default=2)
     ap.add_argument("--lr", type=float, default=1e-5)
@@ -608,7 +619,7 @@ def main():
         bhed_recs = generate_bhed_data(
             client, args.teacher_model, args.batch_size, args.max_tokens_teacher)
         globalop_recs = generate_globalopinion_data(
-            client, args.teacher_model, args.n_globalopinion,
+            client, args.teacher_model,
             args.batch_size, args.max_tokens_teacher)
 
         all_records = normad_recs + bhed_recs + globalop_recs
@@ -665,8 +676,7 @@ def main():
         f"--output results/phase2_after.json "
         f"--tag post-distill "
         f"--batch-size {args.batch_size} "
-        f"--max-tokens-think {args.max_tokens_teacher} "
-        f"--n-globalopinion {args.n_globalopinion}"
+        f"--max-tokens-think {args.max_tokens_teacher}"
     )
     subprocess.run(eval_cmd, shell=True, check=True)
 
